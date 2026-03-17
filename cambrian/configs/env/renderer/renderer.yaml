@@ -17,7 +17,7 @@ scene:
     - 0 # mjRND_WIREFRAME
     - 0 # mjRND_REFLECTION
     - 0 # mjRND_ADDITIVE
-    - 0 # mjRND_SKYBOX
+    - 1 # mjRND_SKYBOX - ENABLED for skybox rendering
     - 0 # mjRND_FOG
     - 0 # mjRND_HAZE
     - 0 # mjRND_SEGMENT

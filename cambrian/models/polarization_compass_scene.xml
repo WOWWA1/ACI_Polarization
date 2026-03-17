@@ -1,0 +1,55 @@
+<mujoco model="polarization_compass_scene">
+    <include file="cambrian/models/settings.xml" />
+    <option integrator="implicitfast" timestep="0.02">
+        <flag frictionloss="disable" />
+    </option>
+    <visual>
+        <headlight active="0" />
+        <map znear="0.0001" zfar="50" />
+        <scale frustum="20" />
+        <!-- Sky blue background - agent sees this as "sky" -->
+        <rgba camera="0.5 0.7 1.0 1" />
+        <quality offsamples="0"/>
+    </visual>
+    <asset>
+        <!-- Featureless gray floor - no visual landmarks -->
+        <material name="flat_floor_mat" rgba="0.4 0.4 0.4 1.0" shininess="0.0" specular="0.0" />
+        <!-- Builtin gradient skybox for testing -->
+        <texture name="skybox" type="skybox" builtin="gradient" rgb1="0.4 0.6 0.8" rgb2="0.1 0.1 0.2" width="512" height="512"/>
+    </asset>
+    <worldbody>
+        <!-- Top-down camera aligned with world axes: +X=right, +Y=up on screen -->
+        <camera name="top_down" pos="0 0 25" xyaxes="1 0 0 0 1 0" mode="fixed"/>
+
+        <!-- Large featureless floor plane -->
+        <geom name="floor"
+              type="plane"
+              pos="0 0 0"
+              size="50 50 0.1"
+              material="flat_floor_mat"
+              contype="1"
+              conaffinity="1"/>
+
+        <!-- Sun light - direction will be randomized by environment -->
+        <body name="sun_body" pos="20 0 20">
+            <light name="sun_light"
+                   dir="-1 0 -1"
+                   pos="0 0 0"
+                   cutoff="90"
+                   exponent="1"
+                   diffuse="1.0 0.95 0.8"
+                   ambient="0.4 0.4 0.45"
+                   specular="0.3 0.3 0.3"
+                   directional="true"/>
+        </body>
+
+        <!-- Additional ambient fill light so scene is never too dark -->
+        <light name="fill_light"
+               pos="0 0 10"
+               dir="0 0 -1"
+               diffuse="0.3 0.3 0.3"
+               ambient="0.3 0.3 0.3"
+               specular="0.0 0.0 0.0"
+               directional="true"/>
+    </worldbody>
+</mujoco>

@@ -43,6 +43,16 @@
                    directional="true"/>
         </body>
 
+        <!-- Direction markers (colored boxes at edge of platform) -->
+        <!-- East (+X) = Red -->
+        <geom name="marker_east" type="box" pos="12 0 -0.5" size="1 1 0.1" rgba="1 0 0 1"/>
+        <!-- West (-X) = Blue -->
+        <geom name="marker_west" type="box" pos="-12 0 -0.5" size="1 1 0.1" rgba="0 0 1 1"/>
+        <!-- North (+Y) = Green -->
+        <geom name="marker_north" type="box" pos="0 12 -0.5" size="1 1 0.1" rgba="0 1 0 1"/>
+        <!-- South (-Y) = Yellow -->
+        <geom name="marker_south" type="box" pos="0 -12 -0.5" size="1 1 0.1" rgba="1 1 0 1"/>
+
         <!-- Additional ambient fill light so scene is never too dark -->
         <light name="fill_light"
                pos="0 0 10"

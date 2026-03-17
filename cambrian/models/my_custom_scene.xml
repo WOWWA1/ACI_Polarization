@@ -1,0 +1,39 @@
+<mujoco model="scene">
+    <include file="cambrian/models/settings.xml" />
+    <option integrator="implicitfast" timestep="0.02">
+        <flag frictionloss="disable" />
+    </option>
+    <visual>
+        <headlight active="0" />
+        <map znear="0.0001" zfar="3" />
+        <scale frustum="20" />
+        <rgba camera="0.6 0.9 0.6 1" />
+        <quality offsamples="0"/>
+        <!-- Remove fogstart, fogend, fogrgba - these are not valid XML elements -->
+    </visual>
+    <asset>
+        <material name="large_floor_mat" rgba="0.2 0.2 0.2 1.0" shininess="0.0" specular="0.0" />
+    </asset>
+    <worldbody>
+        <!-- Large floor plane to see lighting effects (non-colliding, lower) -->
+        <geom name="large_floor" 
+              type="plane" 
+              pos="0 0 -0.2" 
+              size="100 100 0.1" 
+              material="large_floor_mat" 
+              contype="0" 
+              conaffinity="0" 
+              group="1"/>
+        
+        <body name="scene_light_body" pos="15 0 15">
+            <light name="custom_light_1"
+                   dir="-1 0 -1"
+                   pos="0 0 0"
+                   cutoff="60"
+                   exponent="10"
+                   diffuse="1 1 1"
+                   ambient="0.1 0.1 0.1"
+                   specular="0.5 0.5 0.5"/>
+        </body>
+    </worldbody>
+</mujoco>

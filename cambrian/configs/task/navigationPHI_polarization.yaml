@@ -1,0 +1,131 @@
+# @package _global_
+
+# Navigation task with polarization vision.
+# Combines multi-eye RGB vision with a polarization-sensing eye for sky navigation.
+
+defaults:
+  # Use one fairly complicated maze
+  - /env/mazes@env.mazes.maze: COMPLEX
+
+  # Use the maze_task config as the base
+  - maze_task
+
+  # Define one point agent with multi-eye RGB vision
+  - /env/agents@env.agents.agent: point
+  - /env/agents/eyes@env.agents.agent.eyes.eye: multi_eye
+
+  # Add polarization eye
+  - /env/agents/eyes@env.agents.agent.eyes.pol_eye: polarization
+
+  # Define one goal object
+  - /env/agents@env.agents.goal: object_sphere
+
+env:
+  xml:
+    xml_string: ${read:${path:${package:},models,my_custom_scene.xml}}
+
+  renderer:
+    render_modes: [human, rgb_array]
+    scene:
+      flags:
+        - 0 # mjRND_SHADOW
+        - 0 # mjRND_WIREFRAME
+        - 0 # mjRND_REFLECTION
+        - 0 # mjRND_ADDITIVE
+        - 0 # mjRND_SKYBOX
+        - 1 # mjRND_FOG  <-- Enable fog
+        - 0 # mjRND_HAZE
+        - 0 # mjRND_SEGMENT
+        - 0 # mjRND_IDCOLOR
+        - 1 # mjRND_CULL_FACE
+
+  agents:
+    agent:
+      eyes:
+        # Configure multi-eye RGB to match polarization resolution
+        eye:
+          resolution: [8, 8]
+          flatten_observations: True  # Produce single Box space (8, 8, 3)
+
+        # Configure polarization eye
+        pol_eye:
+          sun_light_name: custom_light_1
+          resolution: [8, 8]
+          fov: [120, 120]
+          coord: [60, 0]  # Point upward at 60 degrees to see sky
+
+    goal:
+      custom:
+        size: 0.25
+
+  # Update the scale of the maze so that it's more difficult
+  mazes:
+    maze:
+      agent_id_map:
+        default: ${glob:agent*,${oc.dict.keys:env.agents}}
+        E: ${glob:agent*,${oc.dict.keys:env.agents}}
+        O: ${glob:goal*,${oc.dict.keys:env.agents}}
+
+  reward_fn:
+    reward_if_done:
+      _target_: cambrian.envs.reward_fns.reward_fn_done
+      _partial_: true
+      termination_reward: 1.0
+      truncation_reward: ${eval:'-${.termination_reward}'}
+      disable_on_max_episode_steps: true
+      for_agents: ${glob:agent*,${oc.dict.keys:env.agents}}
+      scale_by_quickness: true
+
+    euclidean_delta_to_goal:
+      _target_: cambrian.envs.reward_fns.reward_fn_euclidean_delta_to_agent
+      _partial_: true
+      reward: 0.1
+      for_agents: ${glob:agent*,${oc.dict.keys:env.agents}}
+      to_agents: ${glob:goal*,${oc.dict.keys:env.agents}}
+
+    penalize_if_has_contacts:
+      _target_: cambrian.envs.reward_fns.reward_fn_has_contacts
+      _partial_: true
+      reward: -0.1
+      for_agents: ${glob:agent*,${oc.dict.keys:env.agents}}
+
+  truncation_fn:
+    truncate_if_low_reward:
+      _target_: cambrian.envs.done_fns.done_if_low_reward
+      _partial_: true
+      threshold: -50.0
+
+  termination_fn:
+    terminate_if_close_to_goal:
+      _target_: cambrian.envs.done_fns.done_if_close_to_agents
+      _partial_: true
+      for_agents: ${glob:agent*,${oc.dict.keys:env.agents}}
+      to_agents: ${glob:goal*,${oc.dict.keys:env.agents}}
+      distance_threshold: 1.0
+
+trainer:
+  model:
+    policy_kwargs:
+      features_extractor_kwargs:
+        share_image_extractor: false  # Allow different eye shapes
+
+eval_env:
+  mazes:
+    maze:
+      agent_id_map:
+        # Update the default map such that the agent is only placed on R:E spaces
+        default: []
+
+  reward_fn:
+    reward_if_done:
+      termination_reward: 10.0
+
+    euclidean_delta_to_goal:
+      reward: 2.0
+
+    penalize_if_has_contacts:
+      reward: -1.0
+
+  truncation_fn:
+    truncate_if_low_reward:
+      disable: true

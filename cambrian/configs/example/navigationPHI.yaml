@@ -1,0 +1,57 @@
+# @package _global_
+
+defaults:
+  - example
+  - override /task: navigationPHI
+
+env:
+  agents:
+    agent:
+      eyes:
+        eye:
+          resolution: [1, 1]
+          num_eyes: [1, 15]
+          lon_range: [-90, 90]
+          fov: [5, 5]
+          renderer:
+            scene:
+              flags:
+                - 0 # mjRND_SHADOW
+                - 0 # mjRND_WIREFRAME
+                - 0 # mjRND_REFLECTION
+                - 0 # mjRND_ADDITIVE
+                - 1 # mjRND_SKYBOX
+                - 0 # mjRND_FOG
+                - 0 # mjRND_HAZE
+                - 0 # mjRND_SEGMENT
+                - 0 # mjRND_IDCOLOR
+                - 1 # mjRND_CULL_FACE
+                
+
+  renderer:
+    scene:
+      flags:
+        - 0 # mjRND_SHADOW
+        - 0 # mjRND_WIREFRAME
+        - 0 # mjRND_REFLECTION
+        - 0 # mjRND_ADDITIVE
+        - 1 # mjRND_SKYBOX
+        - 0 # mjRND_FOG
+        - 0 # mjRND_HAZE
+        - 0 # mjRND_SEGMENT
+        - 0 # mjRND_IDCOLOR
+        - 1 # mjRND_CULL_FACE
+       
+  xml:
+      overrides:
+        - mujoco:
+            - asset:
+                - texture:
+                    - name: "skybox"
+                    - type: "skybox"
+                    - file: "maze_textures/forest_skybox.png"
+                    - gridsize: "3 4"
+                    - gridlayout: ".U..LFRB.D.."
+                    - builtin: "none"          
+eval_env:
+  n_eval_episodes: 1

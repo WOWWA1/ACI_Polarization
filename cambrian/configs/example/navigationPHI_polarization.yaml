@@ -1,0 +1,22 @@
+# @package _global_
+
+defaults:
+  - example
+  - override /task: navigationPHI_polarization
+
+env:
+  agents:
+    agent:
+      eyes:
+        # RGB multi-eye config
+        eye:
+          resolution: [1, 1]
+          num_eyes: [1, 15]
+          lon_range: [-90, 90]
+          fov: [5, 5]
+
+        # Polarization eye config overrides
+        pol_eye:
+          resolution: [8, 8]
+          fov: [120, 120]
+          coord: [60, 0]  # Point upward to see sky

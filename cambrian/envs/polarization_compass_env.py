@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from cambrian.envs.maze_env import MjCambrianMazeEnv, MjCambrianMazeEnvConfig
 from cambrian.utils import get_logger
-from cambrian.utils.skybox import generate_sun_skybox
+from cambrian.utils.skybox import generate_sun_skybox, generate_unique_color_skybox
 
 
 class MjCambrianPolarizationCompassEnv(MjCambrianMazeEnv):
@@ -92,21 +92,30 @@ class MjCambrianPolarizationCompassEnv(MjCambrianMazeEnv):
                 self.model,
                 light_name="sun_light",
                 texture_name="skybox",
+                sun_radius=60,
             )
             print(f"[SKYBOX] Episode sun at {azimuth_deg}°, generation success={skybox_success}")
 
-            # Upload the modified texture to GPU if renderer is available
-            if self._renderer is not None and hasattr(self._renderer, '_viewer'):
-                viewer = self._renderer._viewer
-                if viewer._mjr_context is not None:
-                    tex_id = mujoco.mj_name2id(
-                        self.model, mujoco.mjtObj.mjOBJ_TEXTURE, "skybox"
-                    )
-                    if tex_id != -1:
-                        mujoco.mjr_uploadTexture(
-                            self.model, viewer._mjr_context, tex_id
-                        )
-                        print(f"[SKYBOX] Uploaded texture to GPU (tex_id={tex_id})")
+            # Upload the modified texture to all renderer contexts
+            tex_id = mujoco.mj_name2id(
+                self.model, mujoco.mjtObj.mjOBJ_TEXTURE, "skybox"
+            )
+            if tex_id != -1:
+                # Env renderer
+                if self._renderer is not None and hasattr(self._renderer, '_viewer'):
+                    viewer = self._renderer._viewer
+                    if viewer._mjr_context is not None:
+                        viewer.make_context_current()
+                        mujoco.mjr_uploadTexture(self.model, viewer._mjr_context, tex_id)
+
+                # Each eye's renderer (may have a separate GL context)
+                for agent in self._agents.values():
+                    for eye in agent.eyes.values():
+                        if eye._renderer is not None and hasattr(eye._renderer, '_viewer'):
+                            viewer = eye._renderer._viewer
+                            if viewer._mjr_context is not None:
+                                viewer.make_context_current()
+                                mujoco.mjr_uploadTexture(self.model, viewer._mjr_context, tex_id)
 
         # Move goal to 90° clockwise from sun
         goal_angle = self._current_sun_angle - 90  # 90° clockwise
@@ -255,3 +264,47 @@ class MjCambrianPolarizationCompassEnv(MjCambrianMazeEnv):
         # Update physics
         mujoco.mj_forward(self.model, self.data)
 
+
+class MjCambrianPolarizationCompassDebugEnv(MjCambrianPolarizationCompassEnv):
+    """Debug variant: replaces the sun skybox with a unique-color skybox.
+
+    Each cross-map pixel gets a unique RGB color encoding its (cross_x, cross_y)
+    position. This lets you verify the ray→cubemap mapping by comparing the
+    rendered camera pixel colors against the saved cross-map image.
+
+    On each reset, the cross-map is saved to debug_unique_skybox/crossmap.png.
+    """
+
+    def reset(self, *, seed=None, options=None):
+        obs, info = super().reset(seed=seed, options=options)
+
+        # Overwrite the sun skybox with unique-color skybox
+        success, cross_image = generate_unique_color_skybox(
+            self.model,
+            texture_name="skybox",
+            save_path="debug_unique_skybox/crossmap.png",
+        )
+        if success:
+            print("[DEBUG SKYBOX] Unique-color skybox generated. Cross-map saved to debug_unique_skybox/crossmap.png")
+        else:
+            print("[DEBUG SKYBOX] WARNING: texture 'skybox' not found.")
+
+        # Upload to all GL contexts (same pattern as parent)
+        tex_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_TEXTURE, "skybox")
+        if tex_id != -1:
+            if self._renderer is not None and hasattr(self._renderer, '_viewer'):
+                viewer = self._renderer._viewer
+                if viewer._mjr_context is not None:
+                    viewer.make_context_current()
+                    mujoco.mjr_uploadTexture(self.model, viewer._mjr_context, tex_id)
+
+            for agent in self._agents.values():
+                for eye in agent.eyes.values():
+                    if eye._renderer is not None and hasattr(eye._renderer, '_viewer'):
+                        viewer = eye._renderer._viewer
+                        if viewer._mjr_context is not None:
+                            viewer.make_context_current()
+                            mujoco.mjr_uploadTexture(self.model, viewer._mjr_context, tex_id)
+
+        mujoco.mj_forward(self.model, self.data)
+        return obs, info

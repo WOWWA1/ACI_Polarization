@@ -340,6 +340,174 @@ def _convert_stacked_to_cross(stacked_image: np.ndarray, face_size: int) -> np.n
     return cross_image
 
 
+def generate_unique_color_skybox(
+    model,
+    texture_name: str = "skybox",
+    save_path: Optional[Union[str, Path]] = None,
+):
+    """Generate a skybox where each cross-map pixel has a unique RGB color.
+
+    Encodes the cross-map pixel index as RGB:
+        R = (index >> 16) & 0xFF
+        G = (index >> 8) & 0xFF
+        B = index & 0xFF
+    where index = cross_y * cross_width + cross_x.
+
+    This lets you verify the ray→cubemap mapping: the rendered camera color
+    should match the cross-map pixel at the coordinates predicted by
+    ray_to_cross_map_pixel().
+
+    MuJoCo face ordering in stacked format:
+        0=-Y, 1=+Y, 2=+Z, 3=-Z, 4=-X, 5=+X
+
+    Cross layout (y=0 at top):
+             [+Z row0]
+        [-X] [+Y] [+X] [-Y]  row1
+             [-Z row2]
+
+    Args:
+        model: MuJoCo model (mjModel).
+        texture_name: Name of the skybox texture to overwrite.
+        save_path: If given, save the cross-map image as a PNG here.
+
+    Returns:
+        tuple: (success: bool, cross_image: np.ndarray or None)
+    """
+    tex_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_TEXTURE, texture_name)
+    if tex_id == -1:
+        return False, None
+
+    face_size = model.tex_width[tex_id]
+    cross_width = 4 * face_size
+    cross_height = 3 * face_size
+
+    # face index → (col, row) in cross layout
+    face_col_row = {0: (3, 1), 1: (1, 1), 2: (1, 0), 3: (1, 2), 4: (0, 1), 5: (2, 1)}
+
+    # Build stacked image (6*face_size, face_size, 3)
+    stacked = np.zeros((6 * face_size, face_size, 3), dtype=np.uint8)
+
+    for face_idx in range(6):
+        col, row = face_col_row[face_idx]
+        vv, uu = np.mgrid[0:face_size, 0:face_size]  # (face_size, face_size) each
+
+        cross_x = col * face_size + uu
+        cross_y = row * face_size + vv
+        pixel_index = cross_y.astype(np.int64) * cross_width + cross_x.astype(np.int64)
+
+        y_start = face_idx * face_size
+        stacked[y_start:y_start + face_size, :, 0] = ((pixel_index >> 16) & 0xFF).astype(np.uint8)
+        stacked[y_start:y_start + face_size, :, 1] = ((pixel_index >> 8) & 0xFF).astype(np.uint8)
+        stacked[y_start:y_start + face_size, :, 2] = (pixel_index & 0xFF).astype(np.uint8)
+
+    # Compute number of channels from texture data size
+    tex_adr = model.tex_adr[tex_id]
+    tex_size = face_size * (6 * face_size)
+    if tex_id < len(model.tex_adr) - 1:
+        actual_tex_size = model.tex_adr[tex_id + 1] - model.tex_adr[tex_id]
+    else:
+        actual_tex_size = len(model.tex_data) - model.tex_adr[tex_id]
+    tex_nchannel = actual_tex_size // tex_size if tex_size > 0 else 3
+
+    image = stacked
+    if tex_nchannel == 4:
+        rgba = np.zeros((6 * face_size, face_size, 4), dtype=np.uint8)
+        rgba[..., :3] = stacked
+        rgba[..., 3] = 255
+        image = rgba
+
+    flat = image.flatten()
+    max_write = min(len(flat), len(model.tex_data) - tex_adr)
+    if max_write > 0:
+        model.tex_data[tex_adr:tex_adr + max_write] = flat[:max_write]
+
+    # Build cross-map image for saving / reference
+    cross_image = _convert_stacked_to_cross(stacked, face_size)
+
+    if save_path is not None:
+        from PIL import Image
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(cross_image, mode="RGB").save(save_path)
+
+    return True, cross_image
+
+
+def ray_to_cross_map_pixel(
+    ray_dir: np.ndarray,
+    face_size: int,
+) -> tuple:
+    """Convert a 3D ray direction to (x, y) pixel coordinates in the cross-map layout.
+
+    Uses the standard cubemap sampling convention (OpenGL):
+        Major axis  Face      sc        tc
+        +x          +X (5)   -z/|x|   -y/|x|
+        -x          -X (4)   +z/|x|   -y/|x|
+        +y          +Y (1)   +x/|y|   +z/|y|
+        -y          -Y (0)   +x/|y|   -z/|y|
+        +z          +Z (2)   +x/|z|   -y/|z|
+        -z          -Z (3)   -x/|z|   -y/|z|
+
+    sc, tc in [-1, 1] map to u, v in [0, face_size-1].
+    v=0 is top of face in image (numpy convention).
+
+    Cross-map layout (face_size px per cell, y=0 at top):
+             [+Z]
+        [-X] [+Y] [+X] [-Y]
+             [-Z]
+
+    MuJoCo face indices: 0=-Y, 1=+Y, 2=+Z, 3=-Z, 4=-X, 5=+X
+
+    Args:
+        ray_dir: Direction vector (3,) in world coordinates (x, y, z). Need not be unit.
+        face_size: Size of each cubemap face in pixels.
+
+    Returns:
+        (cross_x, cross_y): Pixel coordinates in the cross-map image.
+    """
+    rx, ry, rz = float(ray_dir[0]), float(ray_dir[1]), float(ray_dir[2])
+    ax, ay, az = abs(rx), abs(ry), abs(rz)
+
+    if ax >= ay and ax >= az:
+        ma = ax
+        if rx > 0:
+            face, sc, tc = 5, -rz / ma, -ry / ma   # +X
+        else:
+            face, sc, tc = 4, +rz / ma, -ry / ma   # -X
+    elif ay >= ax and ay >= az:
+        ma = ay
+        if ry > 0:
+            face, sc, tc = 1, +rx / ma, +rz / ma   # +Y
+        else:
+            face, sc, tc = 0, +rx / ma, -rz / ma   # -Y
+    else:
+        ma = az
+        if rz > 0:
+            face, sc, tc = 2, +rx / ma, -ry / ma   # +Z
+        else:
+            face, sc, tc = 3, -rx / ma, -ry / ma   # -Z
+
+    # Map sc, tc from [-1, 1] to [0, face_size-1]
+    u = int(np.clip((sc + 1) / 2 * face_size, 0, face_size - 1))
+    v = int(np.clip((tc + 1) / 2 * face_size, 0, face_size - 1))
+
+    # Cross-map position: (col, row) for each face index
+    face_to_col_row = {
+        2: (1, 0),  # +Z: row 0, col 1
+        4: (0, 1),  # -X: row 1, col 0
+        1: (1, 1),  # +Y: row 1, col 1
+        5: (2, 1),  # +X: row 1, col 2
+        0: (3, 1),  # -Y: row 1, col 3
+        3: (1, 2),  # -Z: row 2, col 1
+    }
+    col, row = face_to_col_row[face]
+
+    cross_x = col * face_size + u
+    cross_y = row * face_size + v
+
+    return cross_x, cross_y
+
+
 def _draw_circle(
     image: np.ndarray,
     cx: int,

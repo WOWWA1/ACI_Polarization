@@ -1,0 +1,13 @@
+# @package _global_
+
+# Polarization Compass - unique-color skybox debug variant.
+# Saves the cross-map to debug_unique_skybox/crossmap.png on each reset.
+# Use to verify the ray->cubemap pixel mapping.
+
+defaults:
+  - polarization_compass
+
+env:
+  instance:
+    _target_: cambrian.envs.polarization_compass_env.MjCambrianPolarizationCompassDebugEnv
+    _partial_: true

@@ -287,6 +287,9 @@ class MjCambrianPolarizationEye(MjCambrianEye):
 
         # Cache raw RGB for human viewer overlay (set during step)
         self._raw_rgb: torch.Tensor = None
+        self._dop: torch.Tensor = None
+        self._aop: torch.Tensor = None
+        self._sky_mask: torch.Tensor = None
 
     def reset(self, spec: MjCambrianSpec) -> ObsType:
         """Reset the eye and initialize for polarization calculation."""
@@ -377,6 +380,11 @@ class MjCambrianPolarizationEye(MjCambrianEye):
             self._viewing_directions, self._sun_direction
         )
 
+        # Cache for visualization
+        self._dop = dop
+        self._aop = aop
+        self._sky_mask = sky_mask
+
         # Use RGB mean as intensity for Stokes I parameter
         intensity = rgb.mean(dim=-1)
 
@@ -396,15 +404,54 @@ class MjCambrianPolarizationEye(MjCambrianEye):
         return self._update_obs(stokes)
 
     def render(self):
-        """Show the raw RGB view in the human viewer instead of Stokes vectors."""
+        """Show RGB | DoP | AoP panels in the human viewer."""
         if self._raw_rgb is None:
             return super().render()
         from cambrian.renderer.overlays import MjCambrianCursor, MjCambrianViewerOverlay
+
+        rgb_img = self._raw_rgb * 255.0  # (H, W, 3), float32
+
+        if self._dop is not None and self._aop is not None and self._sky_mask is not None:
+            dop_img = self._colorize_dop(self._dop, self._sky_mask)
+            aop_img = self._colorize_aop(self._aop, self._sky_mask)
+            composite = torch.cat(
+                [rgb_img, dop_img.to(rgb_img.device), aop_img.to(rgb_img.device)],
+                dim=1,
+            )
+        else:
+            composite = rgb_img
+
         cursor = MjCambrianCursor(
             position=MjCambrianCursor.Position.BOTTOM_LEFT, x=0, y=0,
             layer=MjCambrianCursor.Layer.BACK,
         )
-        return [MjCambrianViewerOverlay.create_image_overlay(self._raw_rgb * 255.0, cursor=cursor)]
+        return [MjCambrianViewerOverlay.create_image_overlay(composite, cursor=cursor)]
+
+    def _colorize_dop(self, dop: torch.Tensor, sky_mask: torch.Tensor) -> torch.Tensor:
+        """Convert DoP (H, W) to viridis RGB (H, W, 3) in [0, 255], matching heatmap style."""
+        import matplotlib.cm as cm
+        dop_np = (dop * sky_mask).cpu().numpy()
+        normalized = np.clip(dop_np / self._config.max_polarization, 0.0, 1.0)
+        rgb = cm.viridis(normalized)[..., :3]  # (H, W, 3), float [0, 1]
+        rgb[~sky_mask.cpu().numpy()] = 0.0  # black for non-sky pixels
+        return torch.from_numpy((rgb * 255).astype(np.uint8)).float()
+
+    def _colorize_aop(self, aop: torch.Tensor, sky_mask: torch.Tensor) -> torch.Tensor:
+        """Convert AoP (H, W) in [0, π) to HSV hue-wheel RGB (H, W, 3) in [0, 255].
+
+        Matches the heatmap: full saturation, AoP mapped to hue.
+        Non-sky pixels are black.
+        """
+        from matplotlib.colors import hsv_to_rgb
+        aop_np = aop.cpu().numpy()
+        mask_np = sky_mask.cpu().numpy()
+        # AoP is in [0, π) — map to hue [0, 1] (full cycle over 180° matches polarization symmetry)
+        hsv = np.zeros((*aop_np.shape, 3))
+        hsv[..., 0] = aop_np / np.pi  # Hue: [0, 1)
+        hsv[..., 1] = 1.0             # Full saturation
+        hsv[..., 2] = mask_np.astype(float)  # Value: 0 for non-sky, 1 for sky
+        rgb = hsv_to_rgb(hsv)  # (H, W, 3), float [0, 1]
+        return torch.from_numpy((rgb * 255).astype(np.uint8)).float()
 
     @property
     def observation_space(self) -> spaces.Box:

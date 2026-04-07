@@ -69,11 +69,13 @@ def generate_sun_skybox(
 
     # Get texture dimensions
     tex_width = model.tex_width[tex_id]
-    tex_height = model.tex_height[tex_id]
+    # Skybox textures are always 6 stacked square faces internally.
+    # model.tex_height can return unexpected values in some MuJoCo versions.
+    tex_height = 6 * tex_width
     tex_adr = model.tex_adr[tex_id]
 
     # Get actual number of channels from texture size
-    tex_size = model.tex_width[tex_id] * model.tex_height[tex_id]
+    tex_size = tex_width * tex_height
     actual_tex_size = 0
     if tex_id < len(model.tex_adr) - 1:
         actual_tex_size = model.tex_adr[tex_id + 1] - model.tex_adr[tex_id]
@@ -189,14 +191,14 @@ def _create_skybox_image(
             image[y_start:y_end, :] = debug_colors[i]
         return image
 
-    # Correct face mapping based on testing:
-    # Face 2 = Up (sky), Face 3 = Down (ground)
-    FACE_UP = 2      # Sky
-    FACE_DOWN = 3    # Ground
-    FACE_RIGHT = 5   # +X (Magenta)
-    FACE_FRONT = 1   # +Y (Green)
-    FACE_LEFT = 4    # -X (Cyan)
-    FACE_BACK = 0    # -Y (Red)
+    # MuJoCo's internal cubemap face ordering (determined by testing)
+    # This differs from the "standard" ordering in documentation
+    FACE_BACK = 0    # -Y
+    FACE_FRONT = 1   # +Y
+    FACE_UP = 2      # +Z (sky)
+    FACE_DOWN = 3    # -Z (ground)
+    FACE_LEFT = 4    # -X
+    FACE_RIGHT = 5   # +X
 
     # Fill each face
     for i in range(6):
@@ -287,15 +289,18 @@ def _create_skybox_image(
 def _convert_stacked_to_cross(stacked_image: np.ndarray, face_size: int) -> np.ndarray:
     """Convert 6-stacked faces to cross format for visualization.
 
-    Input (6 stacked):    Output (cross format):
-        [0]                    .  [4]  .   .
-        [1]                   [1] [2] [0] [3]
-        [2]                    .  [5]  .   .
-        [3]
-        [4]
-        [5]
+    MuJoCo's internal cubemap face ordering (determined by testing):
+        [0] = -Y (back)
+        [1] = +Y (front)
+        [2] = +Z (up/sky)
+        [3] = -Z (down/ground)
+        [4] = -X (left)
+        [5] = +X (right)
 
-    Where face indices are: 0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z, 5=-Z
+    Output cross format:
+             [+Z up]
+        [-X] [+Y front] [+X] [-Y back]
+             [-Z down]
     """
     # Cross format: 4 cols x 3 rows
     cross_width = face_size * 4
@@ -309,28 +314,28 @@ def _convert_stacked_to_cross(stacked_image: np.ndarray, face_size: int) -> np.n
         y_end = (i + 1) * face_size
         faces.append(stacked_image[y_start:y_end, :, :3])  # Take only RGB
 
-    # Place faces in cross layout:
-    # Row 0: . U . .  (U = +Z = face 4)
-    # Row 1: L F R B  (L=-X=1, F=+Y=2, R=+X=0, B=-Y=3)
-    # Row 2: . D . .  (D = -Z = face 5)
+    # Place faces in cross layout using MuJoCo's face ordering:
+    # Row 0: . U . .  (U = +Z = face 2)
+    # Row 1: L F R B  (L=-X=4, F=+Y=1, R=+X=5, B=-Y=0)
+    # Row 2: . D . .  (D = -Z = face 3)
 
-    # Up face (row 0, col 1)
-    cross_image[0:face_size, face_size:2*face_size] = faces[4]
+    # Up face (+Z = face 2)
+    cross_image[0:face_size, face_size:2*face_size] = faces[2]
 
-    # Left face (row 1, col 0)
-    cross_image[face_size:2*face_size, 0:face_size] = faces[1]
+    # Left face (-X = face 4)
+    cross_image[face_size:2*face_size, 0:face_size] = faces[4]
 
-    # Front face (row 1, col 1)
-    cross_image[face_size:2*face_size, face_size:2*face_size] = faces[2]
+    # Front face (+Y = face 1)
+    cross_image[face_size:2*face_size, face_size:2*face_size] = faces[1]
 
-    # Right face (row 1, col 2)
-    cross_image[face_size:2*face_size, 2*face_size:3*face_size] = faces[0]
+    # Right face (+X = face 5)
+    cross_image[face_size:2*face_size, 2*face_size:3*face_size] = faces[5]
 
-    # Back face (row 1, col 3)
-    cross_image[face_size:2*face_size, 3*face_size:4*face_size] = faces[3]
+    # Back face (-Y = face 0)
+    cross_image[face_size:2*face_size, 3*face_size:4*face_size] = faces[0]
 
-    # Down face (row 2, col 1)
-    cross_image[2*face_size:3*face_size, face_size:2*face_size] = faces[5]
+    # Down face (-Z = face 3)
+    cross_image[2*face_size:3*face_size, face_size:2*face_size] = faces[3]
 
     return cross_image
 

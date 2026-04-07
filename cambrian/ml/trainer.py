@@ -156,8 +156,15 @@ class MjCambrianTrainer:
         )
         if not record:
             record_kwargs = None
+
+        # Create done callback to generate polarization heatmaps
+        def done_callback(episode: int) -> bool:
+            self._generate_polarization_heatmap(cambrian_env, episode)
+            return True
+
         evaluate_policy(
-            eval_env, model, n_runs, record_kwargs=record_kwargs, **callback_kwargs
+            eval_env, model, n_runs, record_kwargs=record_kwargs,
+            done_callback=done_callback, **callback_kwargs
         )
 
         # Calculate fitness
@@ -169,6 +176,62 @@ class MjCambrianTrainer:
             f.write(str(fitness))
 
         return fitness
+
+    def _generate_polarization_heatmap(self, env: MjCambrianEnv, episode: int) -> None:
+        """Generate polarization heatmaps for the current episode.
+
+        Args:
+            env: The environment instance
+            episode: Current episode number
+        """
+        if not hasattr(env, "get_sun_position"):
+            return
+
+        try:
+            from cambrian.utils.polarization_heatmap import (
+                generate_polarization_heatmap,
+                generate_cubemap_heatmap,
+            )
+            from cambrian.utils.skybox import generate_sun_skybox
+
+            sun_az, sun_el = env.get_sun_position()
+
+            heatmap_dir = self._config.expdir / "polarization_heatmaps"
+            heatmap_dir.mkdir(parents=True, exist_ok=True)
+
+            # Generate fisheye projection heatmap
+            output_path = heatmap_dir / f"polarization_ep{episode:03d}.png"
+            generate_polarization_heatmap(
+                sun_azimuth_deg=sun_az,
+                sun_elevation_deg=sun_el,
+                output_path=str(output_path),
+                episode=episode,
+            )
+
+            # Generate cubemap projection heatmap
+            cubemap_path = heatmap_dir / f"polarization_cubemap_ep{episode:03d}.png"
+            generate_cubemap_heatmap(
+                sun_azimuth_deg=sun_az,
+                sun_elevation_deg=sun_el,
+                output_path=str(cubemap_path),
+                episode=episode,
+            )
+
+            # Save skybox texture for comparison
+            skybox_path = heatmap_dir / f"skybox_ep{episode:03d}.png"
+            generate_sun_skybox(
+                env.model,
+                light_name="sun_light",
+                texture_name="skybox",
+                save_path=str(skybox_path),
+            )
+
+            get_logger().info(
+                f"Generated polarization heatmaps: {output_path}, {cubemap_path}, {skybox_path} "
+                f"(sun at {sun_az:.0f} az, {sun_el:.0f} el)"
+            )
+        except Exception as e:
+            get_logger().warning(f"Failed to generate polarization heatmap: {e}")
 
     # ========
 

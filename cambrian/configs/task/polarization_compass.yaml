@@ -27,7 +27,7 @@ env:
     xml_string: ${read:${path:${package:},models,polarization_compass_scene.xml}}
 
   renderer:
-    render_modes: []
+    render_modes: [rgb_array]
 
   agents:
     agent:

@@ -116,6 +116,8 @@ class MjCambrianEvalCallback(EvalCallback):
     def _init_callback(self):
         self.log_path = Path(self.log_path)
         self.n_evals = 0
+        self._heatmap_episode_count = 0  # Track heatmap generation count
+        self._generated_heatmaps = set()  # Track which episodes have heatmaps
 
         # Delete all the existing renders
         for f in glob.glob(str(self.log_path / "vis_*")):
@@ -166,6 +168,19 @@ class MjCambrianEvalCallback(EvalCallback):
         """
         env: MjCambrianEnv = self.eval_env.envs[0].unwrapped
 
+        # Generate polarization heatmap at the start of each episode
+        # Episode counts start at 0 and increment after each episode completes
+        # We generate heatmap when we see a new episode count we haven't processed
+        current_episode_counts = locals_.get("episode_counts", [])
+        i = locals_.get("i", 0)
+        if i < len(current_episode_counts):
+            current_count = current_episode_counts[i]
+            # Generate heatmap for this episode if we haven't already
+            episode_key = (self.n_evals, current_count)
+            if episode_key not in self._generated_heatmaps:
+                self._generated_heatmaps.add(episode_key)
+                self._generate_polarization_heatmap(env, current_count)
+
         # If done, do some logging
         if locals_["done"]:
             run = locals_["episode_counts"][locals_["i"]]
@@ -173,6 +188,64 @@ class MjCambrianEvalCallback(EvalCallback):
             get_logger().info(f"Run {run} done. Cumulative reward: {cumulative_reward}")
 
         super()._log_success_callback(locals_, globals_)
+
+    def _generate_polarization_heatmap(self, env: MjCambrianEnv, episode: int):
+        """Generate polarization heatmap for the current episode.
+
+        Args:
+            env: The environment instance
+            episode: Current episode number
+        """
+        # Check if environment has get_sun_position method
+        if not hasattr(env, "get_sun_position"):
+            return
+
+        try:
+            from cambrian.utils.polarization_heatmap import (
+                generate_polarization_heatmap,
+                generate_cubemap_heatmap,
+            )
+            from cambrian.utils.skybox import generate_sun_skybox
+
+            sun_az, sun_el = env.get_sun_position()
+
+            # Create output path in evaluations subdirectory
+            heatmap_dir = self.log_path / "polarization_heatmaps"
+            heatmap_dir.mkdir(parents=True, exist_ok=True)
+
+            # Generate fisheye projection heatmap
+            output_path = heatmap_dir / f"polarization_ep{episode:03d}.png"
+            generate_polarization_heatmap(
+                sun_azimuth_deg=sun_az,
+                sun_elevation_deg=sun_el,
+                output_path=str(output_path),
+                episode=episode,
+            )
+
+            # Generate cubemap projection heatmap
+            cubemap_path = heatmap_dir / f"polarization_cubemap_ep{episode:03d}.png"
+            generate_cubemap_heatmap(
+                sun_azimuth_deg=sun_az,
+                sun_elevation_deg=sun_el,
+                output_path=str(cubemap_path),
+                episode=episode,
+            )
+
+            # Save skybox texture for comparison
+            skybox_path = heatmap_dir / f"skybox_ep{episode:03d}.png"
+            generate_sun_skybox(
+                env.model,
+                light_name="sun_light",
+                texture_name="skybox",
+                save_path=str(skybox_path),
+            )
+
+            get_logger().info(
+                f"Generated polarization heatmaps: {output_path}, {cubemap_path}, {skybox_path} "
+                f"(sun at {sun_az:.0f} az, {sun_el:.0f} el)"
+            )
+        except Exception as e:
+            get_logger().warning(f"Failed to generate polarization heatmap: {e}")
 
 
 class MjCambrianGPUUsageCallback(BaseCallback):

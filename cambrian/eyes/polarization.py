@@ -285,6 +285,9 @@ class MjCambrianPolarizationEye(MjCambrianEye):
         self._viewing_directions: torch.Tensor = None
         self._sun_direction: torch.Tensor = None
 
+        # Cache raw RGB for human viewer overlay (set during step)
+        self._raw_rgb: torch.Tensor = None
+
     def reset(self, spec: MjCambrianSpec) -> ObsType:
         """Reset the eye and initialize for polarization calculation."""
         # Call parent reset to set up renderer and camera
@@ -332,6 +335,7 @@ class MjCambrianPolarizationEye(MjCambrianEye):
         render_output = self._renderer.render()
         if isinstance(render_output, (tuple, list)) and len(render_output) == 2:
             rgb, depth = render_output
+            self._raw_rgb = rgb
         else:
             # Only RGB was rendered, can't do sky detection
             get_logger().warning(
@@ -390,6 +394,17 @@ class MjCambrianPolarizationEye(MjCambrianEye):
         stokes[..., 2] = (stokes[..., 2] + 1) / 2  # U
 
         return self._update_obs(stokes)
+
+    def render(self):
+        """Show the raw RGB view in the human viewer instead of Stokes vectors."""
+        if self._raw_rgb is None:
+            return super().render()
+        from cambrian.renderer.overlays import MjCambrianCursor, MjCambrianViewerOverlay
+        cursor = MjCambrianCursor(
+            position=MjCambrianCursor.Position.BOTTOM_LEFT, x=0, y=0,
+            layer=MjCambrianCursor.Layer.BACK,
+        )
+        return [MjCambrianViewerOverlay.create_image_overlay(self._raw_rgb * 255.0, cursor=cursor)]
 
     @property
     def observation_space(self) -> spaces.Box:

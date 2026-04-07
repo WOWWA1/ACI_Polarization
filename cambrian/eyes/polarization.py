@@ -221,8 +221,8 @@ def calculate_polarization_angle(
 
     aop = torch.atan2(sin_angle, cos_angle)
 
-    # Map to [0, pi) since polarization angle has 180-degree symmetry
-    return aop % torch.pi
+    # Map to [0, 2*pi)
+    return aop % (2 * torch.pi)
 
 
 def calculate_stokes_vector(
@@ -437,7 +437,7 @@ class MjCambrianPolarizationEye(MjCambrianEye):
         return torch.from_numpy((rgb * 255).astype(np.uint8)).float()
 
     def _colorize_aop(self, aop: torch.Tensor, sky_mask: torch.Tensor) -> torch.Tensor:
-        """Convert AoP (H, W) in [0, π) to HSV hue-wheel RGB (H, W, 3) in [0, 255].
+        """Convert AoP (H, W) in [0, 2π) to HSV hue-wheel RGB (H, W, 3) in [0, 255].
 
         Matches the heatmap: full saturation, AoP mapped to hue.
         Non-sky pixels are black.
@@ -445,12 +445,11 @@ class MjCambrianPolarizationEye(MjCambrianEye):
         from matplotlib.colors import hsv_to_rgb
         aop_np = aop.cpu().numpy()
         mask_np = sky_mask.cpu().numpy()
-        # AoP is in [0, π) — map to hue [0, 1] (full cycle over 180° matches polarization symmetry)
         hsv = np.zeros((*aop_np.shape, 3))
-        hsv[..., 0] = aop_np / np.pi  # Hue: [0, 1)
-        hsv[..., 1] = 1.0             # Full saturation
-        hsv[..., 2] = mask_np.astype(float)  # Value: 0 for non-sky, 1 for sky
-        rgb = hsv_to_rgb(hsv)  # (H, W, 3), float [0, 1]
+        hsv[..., 0] = aop_np / (2 * np.pi)  # Hue: [0, 1)
+        hsv[..., 1] = 1.0
+        hsv[..., 2] = mask_np.astype(float)
+        rgb = hsv_to_rgb(hsv)
         return torch.from_numpy((rgb * 255).astype(np.uint8)).float()
 
     @property

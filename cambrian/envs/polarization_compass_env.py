@@ -126,6 +126,10 @@ class MjCambrianPolarizationCompassEnv(MjCambrianMazeEnv):
 
         return obs, info
 
+    def get_sun_position(self):
+        """Return (azimuth_deg, elevation_deg) of the current sun direction."""
+        return self._sun_trajectory[self._trajectory_index]
+
     def _find_light(self, name: str) -> int:
         """Find light ID by name."""
         # Try mj_name2id first

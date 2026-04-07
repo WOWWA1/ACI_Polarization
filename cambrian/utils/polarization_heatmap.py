@@ -391,13 +391,13 @@ def generate_polarization_heatmap(
 def cubemap_face_directions(face_size: int, face_index: int) -> np.ndarray:
     """Compute viewing direction for each pixel on a cubemap face.
 
-    Uses MuJoCo's internal cubemap face ordering (determined by testing):
-        0: -Y (back)
-        1: +Y (front)
+    Uses MuJoCo's internal cubemap face ordering (verified empirically — X/Y swapped):
+        0: -X (back)
+        1: +X (front)
         2: +Z (up/sky)
         3: -Z (down/ground)
-        4: -X (left)
-        5: +X (right)
+        4: -Y (left)
+        5: +Y (right)
 
     Args:
         face_size: Resolution of each face (width/height in pixels)
@@ -413,29 +413,29 @@ def cubemap_face_directions(face_size: int, face_index: int) -> np.ndarray:
 
     directions = np.zeros((face_size, face_size, 3))
 
-    if face_index == 0:  # -Y (back)
-        directions[..., 0] = uu
-        directions[..., 1] = -1
+    if face_index == 0:  # -X (back)
+        directions[..., 0] = -1
+        directions[..., 1] = -uu
         directions[..., 2] = -vv
-    elif face_index == 1:  # +Y (front)
-        directions[..., 0] = -uu
-        directions[..., 1] = 1
+    elif face_index == 1:  # +X (front)
+        directions[..., 0] = 1
+        directions[..., 1] = uu
         directions[..., 2] = -vv
     elif face_index == 2:  # +Z (up/sky)
-        directions[..., 0] = -uu
-        directions[..., 1] = vv
+        directions[..., 0] = uu
+        directions[..., 1] = -vv
         directions[..., 2] = 1
     elif face_index == 3:  # -Z (down/ground)
         directions[..., 0] = -uu
         directions[..., 1] = -vv
         directions[..., 2] = -1
-    elif face_index == 4:  # -X (left)
-        directions[..., 0] = -1
-        directions[..., 1] = -uu
+    elif face_index == 4:  # -Y (left)
+        directions[..., 0] = uu
+        directions[..., 1] = -1
         directions[..., 2] = -vv
-    elif face_index == 5:  # +X (right)
-        directions[..., 0] = 1
-        directions[..., 1] = uu
+    elif face_index == 5:  # +Y (right)
+        directions[..., 0] = -uu
+        directions[..., 1] = 1
         directions[..., 2] = -vv
 
     # Normalize to unit vectors
@@ -510,7 +510,7 @@ def render_cubemap_heatmaps(
 
     Shows all 6 faces in standard cubemap cross layout:
           [+Z up]
-    [-X] [+Y front] [+X] [-Y back]
+    [-Y] [+X front] [+Y] [-X back]
           [-Z down]
 
     Args:
@@ -588,10 +588,10 @@ def render_cubemap_heatmaps(
     # Add face labels
     face_labels = [
         ("+Z (up)", 0, 1),
-        ("-X (left)", 1, 0),
-        ("+Y (front)", 1, 1),
-        ("+X (right)", 1, 2),
-        ("-Y (back)", 1, 3),
+        ("-Y (left)", 1, 0),
+        ("+X (front)", 1, 1),
+        ("+Y (right)", 1, 2),
+        ("-X (back)", 1, 3),
         ("-Z (down)", 2, 1),
     ]
     for label, row, col in face_labels:
@@ -759,13 +759,13 @@ def direction_to_cubemap_pixel(
 ) -> Tuple[int, int, int, Tuple[int, int]]:
     """Convert a viewing direction to cubemap face and pixel coordinates.
 
-    Uses MuJoCo's internal cubemap face ordering:
-        0: -Y (back)
-        1: +Y (front)
+    Uses MuJoCo's internal cubemap face ordering (verified empirically — X/Y swapped):
+        0: -X (back)
+        1: +X (front)
         2: +Z (up/sky)
         3: -Z (down/ground)
-        4: -X (left)
-        5: +X (right)
+        4: -Y (left)
+        5: +Y (right)
 
     Args:
         direction: Unit direction vector (3,) in world coordinates
@@ -782,17 +782,16 @@ def direction_to_cubemap_pixel(
     # Find dominant axis to determine face
     abs_x, abs_y, abs_z = abs(x), abs(y), abs(z)
 
-    if abs_y >= abs_x and abs_y >= abs_z:
-        # Y-dominant
-        if y > 0:
-            face_idx = 1  # +Y (front)
-            # Project onto face: u = -x/y, v = -z/y
-            u = -x / y
-            v = -z / y
+    if abs_x >= abs_y and abs_x >= abs_z:
+        # X-dominant
+        if x > 0:
+            face_idx = 1  # +X (front)
+            u = y / x
+            v = -z / x
         else:
-            face_idx = 0  # -Y (back)
-            u = x / (-y)
-            v = -z / (-y)
+            face_idx = 0  # -X (back)
+            u = -y / (-x)
+            v = -z / (-x)
     elif abs_z >= abs_x and abs_z >= abs_y:
         # Z-dominant
         if z > 0:
@@ -804,15 +803,15 @@ def direction_to_cubemap_pixel(
             u = -x / (-z)
             v = -y / (-z)
     else:
-        # X-dominant
-        if x > 0:
-            face_idx = 5  # +X (right)
-            u = y / x
-            v = -z / x
+        # Y-dominant
+        if y > 0:
+            face_idx = 5  # +Y (right)
+            u = -x / y
+            v = -z / y
         else:
-            face_idx = 4  # -X (left)
-            u = -y / (-x)
-            v = -z / (-x)
+            face_idx = 4  # -Y (left)
+            u = x / (-y)
+            v = -z / (-y)
 
     # Convert u, v from [-1, 1] to pixel coordinates
     pixel_col = int((u + 1) / 2 * (face_size - 1))

@@ -63,8 +63,7 @@ def generate_sun_skybox(
     sun_dir = -light_dir
 
     # Calculate azimuth and elevation
-    # Add 90° correction to align skybox faces with world coordinates
-    sun_azimuth = np.arctan2(sun_dir[1], sun_dir[0]) + np.pi / 2
+    sun_azimuth = np.arctan2(sun_dir[1], sun_dir[0])
     sun_elevation = np.arctan2(sun_dir[2], np.sqrt(sun_dir[0]**2 + sun_dir[1]**2))
 
     # Get texture dimensions
@@ -191,14 +190,13 @@ def _create_skybox_image(
             image[y_start:y_end, :] = debug_colors[i]
         return image
 
-    # MuJoCo's internal cubemap face ordering (determined by testing)
-    # This differs from the "standard" ordering in documentation
-    FACE_BACK = 0    # -Y
-    FACE_FRONT = 1   # +Y
+    # MuJoCo cubemap face ordering (verified: X and Y are swapped vs labels)
+    FACE_BACK = 0    # -X
+    FACE_FRONT = 1   # +X
     FACE_UP = 2      # +Z (sky)
     FACE_DOWN = 3    # -Z (ground)
-    FACE_LEFT = 4    # -X
-    FACE_RIGHT = 5   # +X
+    FACE_LEFT = 4    # -Y
+    FACE_RIGHT = 5   # +Y
 
     # Fill each face
     for i in range(6):
@@ -232,21 +230,21 @@ def _create_skybox_image(
     else:
         # Sun is on a side face
         # Map azimuth to face
-        # Azimuth 0 = +X direction, pi/2 = +Y, pi = -X, 3pi/2 = -Y
+        # Azimuth 0 = +X (FACE_FRONT), pi/2 = +Y (FACE_RIGHT), pi = -X (FACE_BACK), 3pi/2 = -Y (FACE_LEFT)
         if sun_azimuth_normalized < np.pi / 4 or sun_azimuth_normalized >= 7 * np.pi / 4:
-            sun_face = FACE_RIGHT
+            sun_face = FACE_FRONT
             if sun_azimuth_normalized >= 7 * np.pi / 4:
                 local_x = (sun_azimuth_normalized - 7 * np.pi / 4) / (np.pi / 2)
             else:
                 local_x = (sun_azimuth_normalized + np.pi / 4) / (np.pi / 2)
         elif sun_azimuth_normalized < 3 * np.pi / 4:
-            sun_face = FACE_FRONT
+            sun_face = FACE_RIGHT
             local_x = (sun_azimuth_normalized - np.pi / 4) / (np.pi / 2)
         elif sun_azimuth_normalized < 5 * np.pi / 4:
-            sun_face = FACE_LEFT
+            sun_face = FACE_BACK
             local_x = (sun_azimuth_normalized - 3 * np.pi / 4) / (np.pi / 2)
         else:
-            sun_face = FACE_BACK
+            sun_face = FACE_LEFT
             local_x = (sun_azimuth_normalized - 5 * np.pi / 4) / (np.pi / 2)
 
         # Vertical position based on elevation (0 = horizon, 45° = top of side face)
@@ -439,24 +437,26 @@ def ray_to_cross_map_pixel(
 ) -> tuple:
     """Convert a 3D ray direction to (x, y) pixel coordinates in the cross-map layout.
 
-    Uses the standard cubemap sampling convention (OpenGL):
-        Major axis  Face      sc        tc
-        +x          +X (5)   -z/|x|   -y/|x|
-        -x          -X (4)   +z/|x|   -y/|x|
-        +y          +Y (1)   +x/|y|   +z/|y|
-        -y          -Y (0)   +x/|y|   -z/|y|
-        +z          +Z (2)   +x/|z|   -y/|z|
-        -z          -Z (3)   -x/|z|   -y/|z|
+    MuJoCo cubemap face layout (verified empirically — X and Y are swapped
+    relative to standard OpenGL due to MuJoCo's coordinate convention):
+
+        Major axis  Face        sc          tc
+        +x          1 (+X)    +y/|x|     -z/|x|
+        -x          0 (-X)    -y/|x|     -z/|x|
+        +y          5 (+Y)    -x/|y|     -z/|y|
+        -y          4 (-Y)    +x/|y|     -z/|y|
+        +z          2 (+Z)    +x/|z|     -y/|z|
+        -z          3 (-Z)    -x/|z|     -y/|z|
 
     sc, tc in [-1, 1] map to u, v in [0, face_size-1].
     v=0 is top of face in image (numpy convention).
 
     Cross-map layout (face_size px per cell, y=0 at top):
              [+Z]
-        [-X] [+Y] [+X] [-Y]
+        [-Y] [+X] [+Y] [-X]
              [-Z]
 
-    MuJoCo face indices: 0=-Y, 1=+Y, 2=+Z, 3=-Z, 4=-X, 5=+X
+    MuJoCo face indices: 0=-X, 1=+X, 2=+Z, 3=-Z, 4=-Y, 5=+Y
 
     Args:
         ray_dir: Direction vector (3,) in world coordinates (x, y, z). Need not be unit.
@@ -471,21 +471,21 @@ def ray_to_cross_map_pixel(
     if ax >= ay and ax >= az:
         ma = ax
         if rx > 0:
-            face, sc, tc = 5, -rz / ma, -ry / ma   # +X
+            face, sc, tc = 1, +ry / ma, -rz / ma   # +X → face 1
         else:
-            face, sc, tc = 4, +rz / ma, -ry / ma   # -X
+            face, sc, tc = 0, -ry / ma, -rz / ma   # -X → face 0
     elif ay >= ax and ay >= az:
         ma = ay
         if ry > 0:
-            face, sc, tc = 1, +rx / ma, +rz / ma   # +Y
+            face, sc, tc = 5, -rx / ma, -rz / ma   # +Y → face 5
         else:
-            face, sc, tc = 0, +rx / ma, -rz / ma   # -Y
+            face, sc, tc = 4, +rx / ma, -rz / ma   # -Y → face 4
     else:
         ma = az
         if rz > 0:
-            face, sc, tc = 2, +rx / ma, -ry / ma   # +Z
+            face, sc, tc = 2, +rx / ma, -ry / ma   # +Z → face 2
         else:
-            face, sc, tc = 3, -rx / ma, -ry / ma   # -Z
+            face, sc, tc = 3, -rx / ma, -ry / ma   # -Z → face 3
 
     # Map sc, tc from [-1, 1] to [0, face_size-1]
     u = int(np.clip((sc + 1) / 2 * face_size, 0, face_size - 1))
